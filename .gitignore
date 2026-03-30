@@ -2,3 +2,6 @@
 backup_v*/
 *.zip
 .gemini/
+node_modules/
+REcursos/
+test*.html
