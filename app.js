@@ -1295,7 +1295,6 @@ class SVGRenderer {
             const slotH = fontSize * LH;
             const centerY = curY + slotH / 2;
             textSVG += `<text x="${tx}" y="${centerY}" font-family="${nodeFont}" font-size="${fontSize}" fill="${this.colors.text}" font-weight="${weight}" dominant-baseline="central"${extras}>${italicizeSvgText(content)}</text>`;
-            curY += slotH;
             return slotH;
         };
         
@@ -1367,8 +1366,7 @@ class SVGRenderer {
 
         // ── Phase 2: Calculate box height & vertical centering offset ──
         contentH = curY;
-        const minBoxH = contentH + this.dims.pad * 2;
-        const boxH = Math.max(minBoxH, height || 0);
+        const boxH = contentH + this.dims.pad * 2;
         
         // Offset to vertically center content within the box
         const textOffsetY = y + (boxH - contentH) / 2;
