@@ -2366,7 +2366,7 @@ const DEFAULTS = {
     's-card-header': '#F16522', 's-card-body': '#DDDDDD', 's-card-footer': '#516BED',
     's-diag-hito-w': 360, 's-diag-sub-w': 300, 's-diag-sub-color': '#F57C20', 's-diag-row-gap': 25, 's-diag-sub-bg': '#DDDDDD',
     's-card-body-font': 20, 's-card-q-font': 20, 's-card-body-align': 'justify', 's-card-footer-align': 'center',
-    's-card-body-lh': 1.35, 's-card-footer-lh': 1.3,
+    's-card-body-lh': 1.35, 's-card-footer-lh': 1.05,
     's-card-title-font': 60, 's-card-header-h': 92, 's-card-footer-h': 194,
     's-card-corner-r': 35, 's-card-shadow-h': 12,
 };
