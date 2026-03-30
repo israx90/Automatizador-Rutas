@@ -2349,8 +2349,8 @@ function val(id) {
 const DEFAULTS = {
     's-canvas-width': 1000, 's-canvas-bg': '#ffffff', 's-canvas-transparent': true, 's-canvas-padding': 10,
     's-font-family': "'Montserrat', sans-serif",
-    's-hito-font': 30, 's-title-font': 15, 's-subtitle-font': 20,
-    's-act-title-font': 14, 's-act-sub-font': 14, 's-code-font': 10,
+    's-hito-font': 30, 's-title-font': 16, 's-subtitle-font': 18,
+    's-act-title-font': 16, 's-act-sub-font': 18, 's-code-font': 10,
     's-color-orange': '#f57c20',
     's-color-main': '#2e5bcc',
     's-color-week': '#6f90cd',
