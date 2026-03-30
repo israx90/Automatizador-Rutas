@@ -1305,7 +1305,7 @@ class SVGRenderer {
         const hasRichSub = nodeData && nodeData.richSubtitle;
 
         if (isHito) {
-            actualWidth = this.measureText(titleLines[0], nodeTitleSize, '800') + (this.dims.pad * 3);
+            actualWidth = this.measureText(titleLines[0], nodeTitleSize, '800') * 1.05 + (this.dims.pad * 2);
             curY += addText(textX, nodeTitleSize, '800', titleLines[0]);
         } else {
             if (showTitle) {
@@ -1665,7 +1665,7 @@ class PaginaInicioRenderer {
         // ── 1. Draw course title header (orange box) ──
         const headerTitle = d.customTitle || d.title;
         const headerFontSize = this.fonts.hito;
-        const headerW = this.measureText(headerTitle, headerFontSize, '800') + this.dims.pad * 3;
+        const headerW = this.measureText(headerTitle, headerFontSize, '800') * 1.05 + this.dims.pad * 2;
         const headerH = headerFontSize * LH + this.dims.pad * 2;
         const headerCenterY = currentY + headerH / 2;
 
