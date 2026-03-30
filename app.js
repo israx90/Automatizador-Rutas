@@ -5,6 +5,33 @@
 let currentDiagramData = null;
 let currentSourceFileName = '';  // Stores uploaded DOCX filename for smart download naming
 
+const UndoManager = {
+    stack: [],
+    MAX: 20,
+    saveState() {
+        if (!currentDiagramData) return;
+        this.stack.push(JSON.stringify(currentDiagramData));
+        if (this.stack.length > this.MAX) this.stack.shift();
+    },
+    undo() {
+        if (this.stack.length === 0) return;
+        const prevState = this.stack.pop();
+        currentDiagramData = JSON.parse(prevState);
+        renderDiagram(currentDiagramData, true);
+    }
+};
+
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        const target = e.target;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+            return; // Let browser do native undo
+        }
+        e.preventDefault();
+        UndoManager.undo();
+    }
+});
+
 /** Multi-document state: { 'pagina_inicio': {data, fileName}, 'hito_1': ..., 'hito_5': ... } */
 let allDocuments = {};
 let currentHitoTab = null; // 'pagina_inicio' | 'hito_1' ... 'hito_5' | null (single-file mode)
@@ -1069,6 +1096,9 @@ const DragManager = {
             const snapGrid = (snapEl && snapEl.checked) ? this.SNAP_GRID : 1;
             dx = Math.round(dx / snapGrid) * snapGrid;
             dy = Math.round(dy / snapGrid) * snapGrid;
+
+            // Save state for Undo before mutating
+            UndoManager.saveState();
 
             // Save new offsets for all selected nodes
             this.selectedNodes.forEach(id => {
@@ -2539,6 +2569,10 @@ document.getElementById('apply-settings')?.addEventListener('click', applySettin
 // Reset all manual node positions
 document.getElementById('btn-reset-positions')?.addEventListener('click', () => {
     if (!currentDiagramData || !currentDiagramData.diagram) return;
+    
+    // Save state for Undo before resetting
+    UndoManager.saveState();
+    
     const d = currentDiagramData.diagram;
     delete d.customOffsetX;
     delete d.customOffsetY;
