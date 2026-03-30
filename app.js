@@ -1093,6 +1093,22 @@ const DragManager = {
                     r: rx + rw, b: ry + rh
                 });
             });
+
+            this.knownGapsX = [];
+            this.knownGapsY = [];
+            for (let i = 0; i < this.guideTargets.length; i++) {
+                for (let j = i + 1; j < this.guideTargets.length; j++) {
+                    const A = this.guideTargets[i], B = this.guideTargets[j];
+                    if (Math.max(A.y, B.y) < Math.min(A.b, B.b)) {
+                        const gap = A.x < B.x ? B.x - A.r : A.x - B.r;
+                        if (gap > 5) this.knownGapsX.push({ gap, A, B });
+                    }
+                    if (Math.max(A.x, B.x) < Math.min(A.r, B.r)) {
+                        const gap = A.y < B.y ? B.y - A.b : A.y - B.b;
+                        if (gap > 5) this.knownGapsY.push({ gap, A, B });
+                    }
+                }
+            }
         });
 
         svg.addEventListener('mousemove', (e) => {
@@ -1172,14 +1188,36 @@ const DragManager = {
 
                     for (const tgt of this.guideTargets) {
                         // Check X Snapping
-                        if (Math.abs(curX - tgt.x) < THRESHOLD) { snapDx = tgt.x - startX; guideLines.push({axis:'x', val:tgt.x}); }
-                        else if (Math.abs(curCx - tgt.cx) < THRESHOLD) { snapDx = tgt.cx - startCx; guideLines.push({axis:'x', val:tgt.cx}); }
-                        else if (Math.abs(curR - tgt.r) < THRESHOLD) { snapDx = tgt.r - startR; guideLines.push({axis:'x', val:tgt.r}); }
+                        if (Math.abs(curX - tgt.x) < THRESHOLD) { snapDx = tgt.x - startX; guideLines.push({axis:'x', val:tgt.x, tLabel: Math.round(Math.abs(curY - tgt.y)), ty: (curY+tgt.y)/2}); }
+                        else if (Math.abs(curCx - tgt.cx) < THRESHOLD) { snapDx = tgt.cx - startCx; guideLines.push({axis:'x', val:tgt.cx, tLabel: Math.round(Math.abs(curCy - tgt.cy)), ty: (curCy+tgt.cy)/2}); }
+                        else if (Math.abs(curR - tgt.r) < THRESHOLD) { snapDx = tgt.r - startR; guideLines.push({axis:'x', val:tgt.r, tLabel: Math.round(Math.abs(curB - tgt.b)), ty: (curB+tgt.b)/2}); }
                         
                         // Check Y Snapping
-                        if (Math.abs(curY - tgt.y) < THRESHOLD) { snapDy = tgt.y - startY; guideLines.push({axis:'y', val:tgt.y}); }
-                        else if (Math.abs(curCy - tgt.cy) < THRESHOLD) { snapDy = tgt.cy - startCy; guideLines.push({axis:'y', val:tgt.cy}); }
-                        else if (Math.abs(curB - tgt.b) < THRESHOLD) { snapDy = tgt.b - startB; guideLines.push({axis:'y', val:tgt.b}); }
+                        if (Math.abs(curY - tgt.y) < THRESHOLD) { snapDy = tgt.y - startY; guideLines.push({axis:'y', val:tgt.y, tLabel: Math.round(Math.abs(curX - tgt.x)), tx: (curX+tgt.x)/2}); }
+                        else if (Math.abs(curCy - tgt.cy) < THRESHOLD) { snapDy = tgt.cy - startCy; guideLines.push({axis:'y', val:tgt.cy, tLabel: Math.round(Math.abs(curCx - tgt.cx)), tx: (curCx+tgt.cx)/2}); }
+                        else if (Math.abs(curB - tgt.b) < THRESHOLD) { snapDy = tgt.b - startB; guideLines.push({axis:'y', val:tgt.b, tLabel: Math.round(Math.abs(curR - tgt.r)), tx: (curR+tgt.r)/2}); }
+                    }
+
+                    // Equidistant Gap Snapping Feature (organize symmetrically)
+                    for (const tgt of this.guideTargets) {
+                        const isRow = Math.max(tgt.y, curY) < Math.min(tgt.b, curB);
+                        if (isRow) {
+                            for (const K of this.knownGapsX) {
+                                let gLeft = curX - tgt.r;
+                                let gRight = tgt.x - curR;
+                                if (Math.abs(gLeft - K.gap) < THRESHOLD) { snapDx = tgt.r + K.gap - startX; guideLines.push({gapX:true, x1: tgt.r, x2: tgt.r+K.gap, y: tgt.cy, val: Math.round(K.gap)}); break; }
+                                else if (Math.abs(gRight - K.gap) < THRESHOLD) { snapDx = tgt.x - K.gap - w - startX; guideLines.push({gapX:true, x1: tgt.x-K.gap, x2: tgt.x, y: tgt.cy, val: Math.round(K.gap)}); break; }
+                            }
+                        }
+                        const isCol = Math.max(tgt.x, curX) < Math.min(tgt.r, curR);
+                        if (isCol) {
+                            for (const K of this.knownGapsY) {
+                                let gTop = curY - tgt.b;
+                                let gBot = tgt.y - curB;
+                                if (Math.abs(gTop - K.gap) < THRESHOLD) { snapDy = tgt.b + K.gap - startY; guideLines.push({gapY:true, y1: tgt.b, y2: tgt.b+K.gap, x: tgt.cx, val: Math.round(K.gap)}); break; }
+                                else if (Math.abs(gBot - K.gap) < THRESHOLD) { snapDy = tgt.y - K.gap - h - startY; guideLines.push({gapY:true, y1: tgt.y-K.gap, y2: tgt.y, x: tgt.cx, val: Math.round(K.gap)}); break; }
+                            }
+                        }
                     }
                 }
             }
@@ -1194,19 +1232,61 @@ const DragManager = {
             const totalW = svg.getAttribute('width') || 2000;
             const totalH = svg.getAttribute('height') || 3000;
             guideLines.forEach(line => {
-                const svgLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                svgLine.setAttribute('class', 'smart-guide');
-                svgLine.setAttribute('stroke', '#FF007A');
-                svgLine.setAttribute('stroke-width', '1');
-                svgLine.setAttribute('stroke-dasharray', '4');
-                if (line.axis === 'x') {
-                    svgLine.setAttribute('x1', line.val); svgLine.setAttribute('y1', 0);
-                    svgLine.setAttribute('x2', line.val); svgLine.setAttribute('y2', totalH);
-                } else {
-                    svgLine.setAttribute('x1', 0);        svgLine.setAttribute('y1', line.val);
-                    svgLine.setAttribute('x2', totalW);   svgLine.setAttribute('y2', line.val);
+                if (line.axis === 'x' || line.axis === 'y') {
+                    const svgLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    svgLine.setAttribute('class', 'smart-guide');
+                    svgLine.setAttribute('stroke', '#FF007A');
+                    svgLine.setAttribute('stroke-width', '1');
+                    svgLine.setAttribute('stroke-dasharray', '4');
+                    
+                    if (line.axis === 'x') {
+                        svgLine.setAttribute('x1', line.val); svgLine.setAttribute('y1', 0);
+                        svgLine.setAttribute('x2', line.val); svgLine.setAttribute('y2', totalH);
+                        if (line.tLabel > 0) {
+                            const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            txt.setAttribute('class', 'smart-guide');
+                            txt.setAttribute('fill', '#FF007A'); txt.setAttribute('font-size', '10px');
+                            txt.setAttribute('x', line.val + 4); txt.setAttribute('y', line.ty);
+                            txt.textContent = line.tLabel + 'px';
+                            svg.appendChild(txt);
+                        }
+                    } else {
+                        svgLine.setAttribute('x1', 0);        svgLine.setAttribute('y1', line.val);
+                        svgLine.setAttribute('x2', totalW);   svgLine.setAttribute('y2', line.val);
+                        if (line.tLabel > 0) {
+                            const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            txt.setAttribute('class', 'smart-guide');
+                            txt.setAttribute('fill', '#FF007A'); txt.setAttribute('font-size', '10px');
+                            txt.setAttribute('x', line.tx); txt.setAttribute('y', line.val - 4);
+                            txt.textContent = line.tLabel + 'px';
+                            svg.appendChild(txt);
+                        }
+                    }
+                    svg.appendChild(svgLine);
+                } else if (line.gapX || line.gapY) {
+                    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    group.setAttribute('class', 'smart-guide');
+                    const svgLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    svgLine.setAttribute('stroke', '#FF007A'); svgLine.setAttribute('stroke-width', '1');
+                    
+                    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    txt.setAttribute('fill', '#FF007A'); txt.setAttribute('font-size', '12px');
+                    txt.setAttribute('font-weight', 'bold'); txt.setAttribute('text-anchor', 'middle');
+                    txt.textContent = line.val + 'px';
+
+                    if (line.gapX) {
+                        svgLine.setAttribute('x1', line.x1); svgLine.setAttribute('y1', line.y);
+                        svgLine.setAttribute('x2', line.x2); svgLine.setAttribute('y2', line.y);
+                        txt.setAttribute('x', (line.x1 + line.x2)/2); txt.setAttribute('y', line.y - 4);
+                    } else {
+                        svgLine.setAttribute('x1', line.x); svgLine.setAttribute('y1', line.y1);
+                        svgLine.setAttribute('x2', line.x); svgLine.setAttribute('y2', line.y2);
+                        txt.setAttribute('x', line.x + 4); txt.setAttribute('y', (line.y1 + line.y2)/2 + 4); txt.setAttribute('text-anchor', 'start');
+                    }
+                    group.appendChild(svgLine);
+                    group.appendChild(txt);
+                    svg.appendChild(group);
                 }
-                svg.appendChild(svgLine);
             });
 
             // Apply visual transform to all selected nodes
