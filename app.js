@@ -2932,23 +2932,23 @@ function renderStructurePanelPaginaInicio() {
     </div>`;
 
     d.nodes.forEach((node, idx) => {
-        const cardBody = (node.text.cardBody || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-        const cardQuestion = (node.text.cardQuestion || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const cardBody = node.richCardBody || node.text.cardBody || '';
+        const cardQuestion = node.richCardQuestion || node.text.cardQuestion || '';
+        const nodeFont = node.customFont || val('s-font-family');
 
         html += `<div class="structure-group">
             <div class="structure-card" data-id="${node.id}_card">
                 <div class="structure-group-title">Tarjeta Hito ${idx + 1}</div>
                 <div class="card-collapsible-body">
-                    <div class="field-row">
-                        <textarea class="live-edit-pi-card-body" rows="2" data-idx="${idx}" placeholder="Competencia / aprendizaje..." spellcheck="true" lang="es">${cardBody}</textarea>
-                    </div>
-                    <div class="field-row">
-                        <textarea class="live-edit-pi-card-question" rows="2" data-idx="${idx}" placeholder="Pregunta Autoevalúate..." spellcheck="true" lang="es">${cardQuestion}</textarea>
-                    </div>
+                    <div class="field-label">Texto de competencia (Body)</div>
+                    ${createRichFieldHTML('pi-card-' + idx + '-body', cardBody, { placeholder: 'Competencia / aprendizaje...', font: nodeFont, size: val('s-card-body-font') })}
+                    <div class="field-label">Pregunta Autoevalúate (Footer)</div>
+                    ${createRichFieldHTML('pi-card-' + idx + '-question', cardQuestion, { placeholder: 'Pregunta Autoevalúate...', font: nodeFont, size: val('s-card-q-font') })}
                 </div>
             </div>
         </div>`;
     });
+
 
     list.innerHTML = html;
     bindPaginaInicioPanelEvents();
@@ -3027,34 +3027,42 @@ function bindPaginaInicioPanelEvents() {
         });
     });
 
-    // Card body (tarjetas section)
-    list.querySelectorAll('.live-edit-pi-card-body').forEach(textarea => {
-        setTimeout(() => { textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px'; }, 10);
-        textarea.addEventListener('input', (e) => {
-            e.target.style.height = 'auto';
-            e.target.style.height = e.target.scrollHeight + 'px';
-            const idx = parseInt(e.target.getAttribute('data-idx'));
-            if (d.nodes[idx]) {
-                d.nodes[idx].text.cardBody = e.target.value;
-                // Re-render if we're on that tarjeta tab
-                if (currentActiveTab === `tarjeta_${idx}`) renderDiagram(currentDiagramData, false);
+    // ── Rich Text Events for card body/question fields ──
+    bindRichTextEvents(list, (fieldId) => {
+        const parts = fieldId.match(/^pi-card-(\d+)-(body|question)$/);
+        if (!parts) return null;
+        const idx = parseInt(parts[1]);
+        const fieldKey = parts[2];
+        const node = d.nodes[idx];
+        if (!node) return null;
+        return { node, fieldKey };
+    }, () => {
+        renderDiagram(currentDiagramData, false);
+    });
+
+    // Also bind editors directly for card body/question HTML storage
+    list.querySelectorAll('.rich-editor').forEach(editor => {
+        const fieldEl = editor.closest('[data-field-id]');
+        if (!fieldEl) return;
+        const fieldId = fieldEl.getAttribute('data-field-id');
+        const parts = fieldId.match(/^pi-card-(\d+)-(body|question)$/);
+        if (!parts) return;
+        const idx = parseInt(parts[1]);
+        const fieldKey = parts[2];
+        editor.addEventListener('input', () => {
+            const node = d.nodes[idx];
+            if (!node) return;
+            if (fieldKey === 'body') {
+                node.richCardBody = editor.innerHTML;
+                node.text.cardBody = editor.textContent;
+            } else if (fieldKey === 'question') {
+                node.richCardQuestion = editor.innerHTML;
+                node.text.cardQuestion = editor.textContent;
             }
+            if (currentActiveTab === `tarjeta_${idx}`) renderDiagram(currentDiagramData, false);
         });
     });
 
-    // Card question (tarjetas section)
-    list.querySelectorAll('.live-edit-pi-card-question').forEach(textarea => {
-        setTimeout(() => { textarea.style.height = 'auto'; textarea.style.height = textarea.scrollHeight + 'px'; }, 10);
-        textarea.addEventListener('input', (e) => {
-            e.target.style.height = 'auto';
-            e.target.style.height = e.target.scrollHeight + 'px';
-            const idx = parseInt(e.target.getAttribute('data-idx'));
-            if (d.nodes[idx]) {
-                d.nodes[idx].text.cardQuestion = e.target.value;
-                if (currentActiveTab === `tarjeta_${idx}`) renderDiagram(currentDiagramData, false);
-            }
-        });
-    });
 
     // openNodeEditor for Página de Inicio
     window.openNodeEditor = function(id) {
