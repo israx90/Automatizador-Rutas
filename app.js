@@ -1187,6 +1187,9 @@ const DragManager = {
             dx = snapDx;
             dy = snapDy;
 
+            this.snapDx = dx;
+            this.snapDy = dy;
+
             // Draw visual guides
             const totalW = svg.getAttribute('width') || 2000;
             const totalH = svg.getAttribute('height') || 3000;
@@ -1256,11 +1259,14 @@ const DragManager = {
             svg.querySelectorAll('.smart-guide').forEach(n => n.remove());
 
             const svgPt = this.screenToSVG(svg, e.clientX, e.clientY);
-            let dx = svgPt.x - this.startMouseX;
-            let dy = svgPt.y - this.startMouseY;
+            let dx = this.snapDx !== undefined ? this.snapDx : (svgPt.x - this.startMouseX);
+            let dy = this.snapDy !== undefined ? this.snapDy : (svgPt.y - this.startMouseY);
 
             if (this.axisLock === 'x') dy = 0;
             if (this.axisLock === 'y') dx = 0;
+
+            this.snapDx = undefined;
+            this.snapDy = undefined;
 
             if (!this.hasMoved) {
                 // It was a click, not a drag — reset transforms and open editor
