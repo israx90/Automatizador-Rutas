@@ -4,6 +4,7 @@
    ======================================================================== */
 let currentDiagramData = null;
 let currentSourceFileName = '';  // Stores uploaded DOCX filename for smart download naming
+let nodeIdCounter = Date.now(); // Unique ID generator for new blocks
 
 const UndoManager = {
     stack: [],
@@ -335,6 +336,7 @@ function enableDownloads() {
     document.getElementById('download-btn').disabled = false;
     document.getElementById('download-svg-btn').disabled = false;
     document.getElementById('download-zip-btn').disabled = false;
+    document.getElementById('spell-check-btn').disabled = false;
 }
 
 function showUploadError(container) {
@@ -1899,6 +1901,12 @@ class SVGRenderer {
         gStr += `<g transform="translate(0, ${textOffsetY})">`;
         gStr += textSVG;
         gStr += `</g>`;
+        // New block indicator (pulsing red dot)
+        if (nodeData && nodeData.isNewBlock) {
+            gStr += `<circle class="new-block-indicator" cx="${x + actualWidth/2}" cy="${y - 8}" r="6" fill="#ef4444"><animate attributeName="opacity" values="1;0.2;1" dur="1.2s" repeatCount="indefinite"/></circle>`;
+        }
+        // Resize handle (right edge, visible on hover via CSS)
+        gStr += `<rect class="resize-handle-vis" data-resize-id="${id}" x="${x + actualWidth - 4}" y="${y + boxH/2 - 12}" width="8" height="24" rx="3" fill="#00E5FF" opacity="0" style="cursor:ew-resize" />`;
         gStr += `</g>`;
 
         this.nodesStr += gStr;
@@ -2055,6 +2063,7 @@ class SVGRenderer {
 
         // Initialize drag & click handling for interactive SVG nodes
         DragManager.init(this.container);
+        ResizeManager.init(this.container);
     }
 
     addRouting(weeks) {
@@ -2332,26 +2341,34 @@ class PaginaInicioRenderer {
             const subYOffset = actSubY + (rowH - subH) / 2;
 
             // Draw hito blue box
+            const actHitoW = node.customWidth || this.hitoBoxW;
             nodesStr += `<g class="interactive-node" style="cursor:pointer" data-node-id="${node.id}">`;
-            nodesStr += `<rect x="${actHitoX}" y="${hitoYOffset}" width="${this.hitoBoxW}" height="${hitoH}" rx="${this.dims.br}" fill="${bgColor}" stroke="${borderColor}" stroke-width="${this.dims.bw}" />`;
+            nodesStr += `<rect x="${actHitoX}" y="${hitoYOffset}" width="${actHitoW}" height="${hitoH}" rx="${this.dims.br}" fill="${bgColor}" stroke="${borderColor}" stroke-width="${this.dims.bw}" />`;
             // Text is already offset by actHitoY + this.dims.pad in rendering, we just need to shift it to center
             const hShift = hitoYOffset - actHitoY;
             nodesStr += `<g transform="translate(0, ${hShift})">`;
             nodesStr += hitoTextSvg;
-            nodesStr += `</g></g>`;
+            nodesStr += `</g>`;
+            // Resize handle (right edge)
+            nodesStr += `<rect class="resize-handle-vis" data-resize-id="${node.id}" x="${actHitoX + actHitoW - 4}" y="${hitoYOffset + hitoH/2 - 12}" width="8" height="24" rx="3" fill="#00E5FF" opacity="0" style="cursor:ew-resize" />`;
+            nodesStr += `</g>`;
 
             // Draw subtitle dashed box
+            const actSubW = node.customSubWidth || this.subtitleBoxW;
             if (showDesc) {
                 nodesStr += `<g class="interactive-node" style="cursor:pointer" data-node-id="${node.id}_sub">`;
-                nodesStr += `<rect x="${actSubX}" y="${subYOffset}" width="${this.subtitleBoxW}" height="${subH}" rx="${this.dims.br}" fill="${this.colors.subBoxBg}" stroke="${this.colors.subBox}" stroke-width="${this.dims.bw}" />`;
+                nodesStr += `<rect x="${actSubX}" y="${subYOffset}" width="${actSubW}" height="${subH}" rx="${this.dims.br}" fill="${this.colors.subBoxBg}" stroke="${this.colors.subBox}" stroke-width="${this.dims.bw}" />`;
                 const sShift = subYOffset - actSubY;
                 nodesStr += `<g transform="translate(0, ${sShift})">`;
                 nodesStr += subTextSvg;
-                nodesStr += `</g></g>`;
+                nodesStr += `</g>`;
+                // Resize handle (right edge)
+                nodesStr += `<rect class="resize-handle-vis" data-resize-id="${node.id}_sub" x="${actSubX + actSubW - 4}" y="${subYOffset + subH/2 - 12}" width="8" height="24" rx="3" fill="#00E5FF" opacity="0" style="cursor:ew-resize" />`;
+                nodesStr += `</g>`;
             }
 
-            hitoBoxes.push({ x: actHitoX, y: hitoYOffset, w: this.hitoBoxW, h: hitoH, cx: actHitoX + this.hitoBoxW / 2, cy: hitoYOffset + hitoH / 2, r: actHitoX + this.hitoBoxW, b: hitoYOffset + hitoH });
-            subBoxes.push({ x: actSubX, y: subYOffset, w: this.subtitleBoxW, h: subH, cx: actSubX + this.subtitleBoxW / 2, cy: subYOffset + subH / 2 });
+            hitoBoxes.push({ x: actHitoX, y: hitoYOffset, w: actHitoW, h: hitoH, cx: actHitoX + actHitoW / 2, cy: hitoYOffset + hitoH / 2, r: actHitoX + actHitoW, b: hitoYOffset + hitoH });
+            subBoxes.push({ x: actSubX, y: subYOffset, w: actSubW, h: subH, cx: actSubX + actSubW / 2, cy: subYOffset + subH / 2 });
 
             currentY += rowH + this.rowGap;
         });
@@ -2412,6 +2429,10 @@ class PaginaInicioRenderer {
                 window.openNodeEditor(nodeId);
             }
         });
+
+        // Initialize drag & resize for PI diagram
+        DragManager.init(this.container);
+        ResizeManager.initPI(this.container, this.data);
     }
 }
 
@@ -3277,9 +3298,16 @@ function renderStructurePanel() {
                 html += `<div class="structure-children">`;
                 week.children.forEach((act) => {
                     html += buildCard(act, act.type === 'finalActivityNode' ? 'Actividad' : 'Sub-Bloque (Error)');
+                    // (+) Add Activity button after each activity
+                    html += `<button class="btn-add-block btn-add-activity" data-week-id="${week.id}" data-after-id="${act.id}" title="Agregar actividad aquí"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>`;
                 });
                 html += `</div>`;
+            } else {
+                // (+) Add first activity in empty week
+                html += `<div class="structure-children"><button class="btn-add-block btn-add-activity" data-week-id="${week.id}" data-after-id="" title="Agregar actividad"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>`;
             }
+            // (+) Add Week button after this week
+            html += `<button class="btn-add-block btn-add-week" data-after-week="${week.id}" title="Agregar semana aquí"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Semana</button>`;
             html += `</div>`;
         });
     }
@@ -3329,17 +3357,22 @@ function bindStructurePanelEvents() {
     }, () => renderDiagram(currentDiagramData, false));
 
     // ── Container Controls ──
+    // Helper to get active IDs for batch edits
+    const getActiveIds = (id) => DragManager.selectedNodes.has(id) ? Array.from(DragManager.selectedNodes) : [id];
+
     // Width
     list.querySelectorAll('.ctrl-width').forEach(input => {
         input.addEventListener('change', (e) => {
             const id = e.target.getAttribute('data-id');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                const v = parseInt(e.target.value);
-                targetInfo.node.customWidth = v > 0 ? v : undefined;
-                if (!v) delete targetInfo.node.customWidth;
-                renderDiagram(currentDiagramData, false);
-            }
+            const v = parseInt(e.target.value);
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    targetInfo.node.customWidth = v > 0 ? v : undefined;
+                    if (!v) delete targetInfo.node.customWidth;
+                }
+            });
+            renderDiagram(currentDiagramData, false);
         });
     });
 
@@ -3347,11 +3380,14 @@ function bindStructurePanelEvents() {
     list.querySelectorAll('.ctrl-border-color').forEach(input => {
         input.addEventListener('input', (e) => {
             const id = e.target.getAttribute('data-id');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                targetInfo.node.customBorderColor = e.target.value;
-                renderDiagram(currentDiagramData, false);
-            }
+            const color = e.target.value;
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    targetInfo.node.customBorderColor = color;
+                }
+            });
+            renderDiagram(currentDiagramData, false);
         });
     });
 
@@ -3360,15 +3396,17 @@ function bindStructurePanelEvents() {
         btn.addEventListener('click', (e) => {
             const id = e.currentTarget.getAttribute('data-id');
             const align = e.currentTarget.getAttribute('data-align');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                targetInfo.node.customTitleAlign = align;
-                // Update button active states
-                const group = e.currentTarget.closest('.align-group');
-                if (group) group.querySelectorAll('.align-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                renderDiagram(currentDiagramData, false);
-            }
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    targetInfo.node.customTitleAlign = align;
+                }
+            });
+            // Update button active states locally if single click, but re-render fixes it anyway
+            const group = e.currentTarget.closest('.align-group');
+            if (group) group.querySelectorAll('.align-btn').forEach(b => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            renderDiagram(currentDiagramData, false);
         });
     });
 
@@ -3377,11 +3415,13 @@ function bindStructurePanelEvents() {
         select.addEventListener('change', (e) => {
             const id = e.target.getAttribute('data-id');
             const newHierarchy = e.target.value;
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node && targetInfo.node.type !== newHierarchy) {
-                mutateHierarchy(targetInfo, newHierarchy, rootNode);
-                renderDiagram(currentDiagramData, true); 
-            }
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node && targetInfo.node.type !== newHierarchy) {
+                    mutateHierarchy(targetInfo, newHierarchy, rootNode);
+                }
+            });
+            renderDiagram(currentDiagramData, true); 
         });
     });
 
@@ -3389,11 +3429,18 @@ function bindStructurePanelEvents() {
     list.querySelectorAll('.hide-node-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const id = e.currentTarget.getAttribute('data-id');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                targetInfo.node.hidden = !targetInfo.node.hidden;
-                renderDiagram(currentDiagramData, true); 
-            }
+            // Check state of the clicked node to toggle them ALL to the same state
+            const mainInfo = findParentAndNode(rootNode, id);
+            if (!mainInfo || !mainInfo.node) return;
+            const newState = !mainInfo.node.hidden;
+
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    targetInfo.node.hidden = newState;
+                }
+            });
+            renderDiagram(currentDiagramData, true); 
         });
     });
 
@@ -3402,11 +3449,13 @@ function bindStructurePanelEvents() {
         swatch.addEventListener('click', (e) => {
             const id = e.currentTarget.getAttribute('data-id');
             const color = e.currentTarget.getAttribute('data-color');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                targetInfo.node.customBgColor = color;
-                renderDiagram(currentDiagramData, true); 
-            }
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    targetInfo.node.customBgColor = color;
+                }
+            });
+            renderDiagram(currentDiagramData, true); 
         });
     });
 
@@ -3414,11 +3463,28 @@ function bindStructurePanelEvents() {
     list.querySelectorAll('.reset-swatch').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const id = e.currentTarget.getAttribute('data-id');
-            const targetInfo = findParentAndNode(rootNode, id);
-            if (targetInfo && targetInfo.node) {
-                delete targetInfo.node.customBgColor;
-                renderDiagram(currentDiagramData, true); 
-            }
+            getActiveIds(id).forEach(currId => {
+                const targetInfo = findParentAndNode(rootNode, currId);
+                if (targetInfo && targetInfo.node) {
+                    delete targetInfo.node.customBgColor;
+                }
+            });
+            renderDiagram(currentDiagramData, true); 
+        });
+    });
+
+    // ── Add Block Buttons ──
+    list.querySelectorAll('.btn-add-week').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const afterWeekId = btn.getAttribute('data-after-week');
+            addNewWeek(afterWeekId);
+        });
+    });
+    list.querySelectorAll('.btn-add-activity').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const weekId = btn.getAttribute('data-week-id');
+            const afterActId = btn.getAttribute('data-after-id');
+            addNewActivity(weekId, afterActId || null);
         });
     });
 }
@@ -4134,3 +4200,640 @@ document.getElementById('download-zip-btn').addEventListener('click', async () =
         alert('Error al generar el ZIP: ' + err.message);
     }
 });
+
+/* ========================================================================
+   FEATURE 1 — ADD BLOCKS DYNAMICALLY
+   ======================================================================== */
+function generateNodeId(prefix = 'new') {
+    return `${prefix}_${nodeIdCounter++}`;
+}
+
+function addNewWeek(afterWeekId) {
+    if (!currentDiagramData) return;
+    UndoManager.saveState();
+
+    const root = currentDiagramData.diagram.nodes[0];
+    const avance = root.children && root.children[0];
+    if (!avance || !avance.children) return;
+
+    const insertIdx = afterWeekId
+        ? avance.children.findIndex(w => w.id === afterWeekId) + 1
+        : avance.children.length;
+
+    const weekNum = insertIdx + 1;
+    const newWeek = {
+        id: generateNodeId('week'),
+        type: avance.children.length > 0 ? avance.children[0].type : 'weekNode',
+        isNewBlock: true,
+        text: { title: `S${String(weekNum).padStart(2, '0')}`, subtitle: 'Nueva Semana' },
+        children: [{
+            id: generateNodeId('act'),
+            type: 'finalActivityNode',
+            isNewBlock: true,
+            text: { code: `S${String(weekNum).padStart(2, '0')}`, title: 'Actividad:', subtitle: 'Descripción de actividad' }
+        }]
+    };
+
+    avance.children.splice(insertIdx, 0, newWeek);
+    renderDiagram(currentDiagramData, true);
+}
+
+function addNewActivity(weekId, afterActId) {
+    if (!currentDiagramData) return;
+    UndoManager.saveState();
+
+    const root = currentDiagramData.diagram.nodes[0];
+    const avance = root.children && root.children[0];
+    if (!avance) return;
+
+    const week = avance.children.find(w => w.id === weekId);
+    if (!week) return;
+    if (!week.children) week.children = [];
+
+    const insertIdx = afterActId
+        ? week.children.findIndex(a => a.id === afterActId) + 1
+        : week.children.length;
+
+    // Derive code from week title
+    const weekCode = week.text?.title || week.customTitle || 'SXX';
+
+    const newAct = {
+        id: generateNodeId('act'),
+        type: 'finalActivityNode',
+        isNewBlock: true,
+        text: { code: weekCode, title: 'Actividad:', subtitle: 'Descripción de actividad' }
+    };
+
+    week.children.splice(insertIdx, 0, newAct);
+    renderDiagram(currentDiagramData, true);
+}
+
+
+/* ========================================================================
+   FEATURE 2 — SPELL CHECK ENGINE (Typo.js + rla-es dictionaries)
+   ======================================================================== */
+const SpellCheckEngine = {
+    typo: null,
+    isLoaded: false,
+    isLoading: false,
+    ignoredWords: new Set(),
+
+    async load() {
+        if (this.isLoaded) return true;
+        if (this.isLoading) return false;
+        this.isLoading = true;
+
+        try {
+            // Load Typo.js dynamically if not already loaded
+            if (typeof Typo === 'undefined') {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/typo-js@1.2.4/typo.js';
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error('No se pudo cargar Typo.js'));
+                    document.head.appendChild(script);
+                });
+            }
+
+            // Load Spanish dictionary files from npm/CDN (based on rla-es)
+            const [affData, dicData] = await Promise.all([
+                fetch('https://cdn.jsdelivr.net/npm/dictionary-es@2.0.1/index.aff').then(r => {
+                    if (!r.ok) throw new Error('Error cargando diccionario .aff');
+                    return r.text();
+                }),
+                fetch('https://cdn.jsdelivr.net/npm/dictionary-es@2.0.1/index.dic').then(r => {
+                    if (!r.ok) throw new Error('Error cargando diccionario .dic');
+                    return r.text();
+                })
+            ]);
+
+            this.typo = new Typo('es', affData, dicData);
+            this.isLoaded = true;
+            this.isLoading = false;
+            console.log('[SpellCheck] Dictionary loaded successfully');
+            return true;
+        } catch (err) {
+            console.error('[SpellCheck] Load error:', err);
+            this.isLoading = false;
+            alert('Error al cargar el diccionario ortográfico: ' + err.message);
+            return false;
+        }
+    },
+
+    checkWord(word) {
+        if (!this.isLoaded || !this.typo) return true;
+        const clean = word.replace(/^[¿¡"'«(\[¿]+/g, '').replace(/[.,;:!?"'»)\]]+$/g, '').trim();
+        if (clean.length < 2) return true;
+        // Skip codes like CGU-511, S02, SXX, numeric, all-caps abbreviations
+        if (/^[A-Z0-9\-_.]+$/.test(clean)) return true;
+        if (/^\d+$/.test(clean)) return true;
+        if (this.ignoredWords.has(clean.toLowerCase())) return true;
+        return this.typo.check(clean);
+    },
+
+    suggest(word) {
+        if (!this.isLoaded || !this.typo) return [];
+        const clean = word.replace(/^[¿¡"'«""(\[]+|[.,;:!?"'»"")\]]+$/g, '');
+        return this.typo.suggest(clean).slice(0, 5);
+    },
+
+    ignore(word) {
+        this.ignoredWords.add(word.toLowerCase());
+    },
+
+    /** Scan all text fields in the current diagram data */
+    checkAllFields() {
+        if (!currentDiagramData) return [];
+        const errors = [];
+        const d = currentDiagramData.diagram;
+
+        const checkText = (text, nodeId, fieldName, path) => {
+            if (!text || typeof text !== 'string') return;
+            // Decode HTML entities properly and strip tags
+            const doc = new DOMParser().parseFromString(text, 'text/html');
+            const plainText = doc.body.textContent || "";
+            // Split by words, excluding things that are purely symbols
+            const words = plainText.split(/[\s\xA0]+/).filter(w => w.trim().length > 0);
+            
+            words.forEach(word => {
+                if (!this.checkWord(word)) {
+                    const clean = word.replace(/^[¿¡"'«(\[¿]+/g, '').replace(/[.,;:!?"'»)\]]+$/g, '').trim();
+                    if (!errors.find(e => e.nodeId === nodeId && e.word === clean)) {
+                        errors.push({
+                            nodeId,
+                            field: fieldName,
+                            word: clean,
+                            originalWord: word,
+                            path,
+                            suggestions: this.suggest(clean)
+                        });
+                    }
+                }
+            });
+        };
+
+        const checkNode = (node, path) => {
+            if (!node) return;
+            const title = node.customTitle || node.richTitle || (node.text && node.text.title) || '';
+            const subtitle = node.customSubtitle || node.richSubtitle || (node.text && node.text.subtitle) || '';
+
+            checkText(title, node.id, 'title', path);
+            checkText(subtitle, node.id, 'subtitle', path);
+
+            // Página de Inicio specific fields
+            if (node.customDescription || node.richDescription || (node.text && node.text.subtitle !== subtitle)) {
+                const desc = node.customDescription || node.richDescription || '';
+                if (desc) checkText(desc, node.id, 'description', path);
+            }
+
+            if (node.children) {
+                node.children.forEach((child, i) => {
+                    const childLabel = child.customTitle || (child.text && child.text.title) || `Bloque ${i + 1}`;
+                    checkNode(child, path + ' → ' + childLabel);
+                });
+            }
+        };
+
+        if (d.type === 'paginaInicio') {
+            // Check course title
+            const courseTitle = d.customTitle || d.richCourseTitle || d.title || '';
+            checkText(courseTitle, 'course_title', 'title', 'Título Asignatura');
+
+            d.nodes.forEach((node, i) => checkNode(node, `Hito ${i + 1}`));
+        } else if (d.nodes && d.nodes[0]) {
+            checkNode(d.nodes[0], 'Hito');
+        }
+
+        return errors;
+    }
+};
+
+/* Spell Check Button Handler */
+document.getElementById('spell-check-btn').addEventListener('click', async () => {
+    if (!currentDiagramData) return;
+
+    // Create modal
+    const overlay = document.createElement('div');
+    overlay.className = 'spell-modal-overlay';
+    overlay.innerHTML = `
+        <div class="spell-modal">
+            <div class="spell-modal-header">
+                <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-3px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Revisión Ortográfica</h3>
+                <button class="spell-modal-close" title="Cerrar">&times;</button>
+            </div>
+            <div class="spell-modal-body">
+                <div class="spell-loading">
+                    <div class="spell-spinner"></div>
+                    Cargando diccionario español...
+                </div>
+            </div>
+            <div class="spell-modal-footer">
+                <span class="spell-stats"></span>
+                <button class="btn btn-secondary spell-close-btn" style="font-size:0.75rem;padding:4px 12px;">Cerrar</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Close handlers
+    const closeModal = () => overlay.remove();
+    overlay.querySelector('.spell-modal-close').addEventListener('click', closeModal);
+    overlay.querySelector('.spell-close-btn').addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+    const body = overlay.querySelector('.spell-modal-body');
+    const stats = overlay.querySelector('.spell-stats');
+
+    // Load dictionary
+    const loaded = await SpellCheckEngine.load();
+    if (!loaded) {
+        closeModal();
+        return;
+    }
+
+    // Run check
+    const errors = SpellCheckEngine.checkAllFields();
+
+    if (errors.length === 0) {
+        body.innerHTML = `
+            <div class="spell-success">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                ¡Sin errores ortográficos!
+                <span style="font-size:0.7rem;color:var(--edtech-text-muted);font-weight:400;">Todos los campos de texto están correctos.</span>
+            </div>
+        `;
+        stats.textContent = '0 errores';
+        return;
+    }
+
+    // Build error list
+    const uniqueNodes = new Set(errors.map(e => e.nodeId));
+    stats.textContent = `${errors.length} posible${errors.length !== 1 ? 's' : ''} error${errors.length !== 1 ? 'es' : ''} en ${uniqueNodes.size} caja${uniqueNodes.size !== 1 ? 's' : ''}`;
+
+    let errorsHtml = '';
+    errors.forEach((err, idx) => {
+        const suggestionsHtml = err.suggestions.length > 0
+            ? err.suggestions.map(s => `<button class="spell-suggestion-chip" data-idx="${idx}" data-suggestion="${s.replace(/"/g, '&quot;')}">${s}</button>`).join('')
+            : '<span style="font-size:0.6rem;color:var(--edtech-text-muted);font-style:italic;">Sin sugerencias</span>';
+        errorsHtml += `
+            <div class="spell-error-item" data-idx="${idx}">
+                <div class="spell-error-word">${err.word}</div>
+                <div class="spell-error-context">
+                    <div class="spell-error-path">${err.path} → ${err.field}</div>
+                    <div class="spell-suggestions">
+                        ${suggestionsHtml}
+                        <div class="spell-manual-edit" style="display:inline-flex; align-items:center; gap:0.2rem; margin-left:0.5rem; border-left:1px solid rgba(255,255,255,0.1); padding-left:0.5rem;">
+                            <input type="text" class="spell-manual-input" data-idx="${idx}" style="font-size:0.65rem; padding:2px 4px; border:1px solid rgba(255,255,255,0.2); background:rgba(0,0,0,0.2); color:#fff; border-radius:3px; outline:none; max-width:90px;" value="${err.word}" placeholder="Corregir..." />
+                            <button class="spell-manual-apply-btn btn-icon" data-idx="${idx}" title="Aplicar corrección manual" style="padding:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></button>
+                        </div>
+                        <button class="spell-ignore-btn" data-idx="${idx}">Ignorar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    body.innerHTML = errorsHtml;
+
+    // Helper to apply correction and trigger re-render
+    const applyCorrection = (idx, suggestion) => {
+        const err = errors[idx];
+        if (!err || !suggestion) return;
+
+        UndoManager.saveState();
+
+        // Find the node and apply correction
+        const root = currentDiagramData.diagram;
+        let node = null;
+        if (root.type === 'paginaInicio') {
+            if (err.nodeId === 'course_title') {
+                node = root;
+            } else {
+                const findNode = (n) => {
+                    if (n.id === err.nodeId) return n;
+                    if (n.children) for (const c of n.children) { const r = findNode(c); if (r) return r; }
+                    return null;
+                };
+                for (const n of root.nodes) { node = findNode(n); if (node) break; }
+            }
+        } else if (root.nodes && root.nodes[0]) {
+            const findNode = (n) => {
+                if (n.id === err.nodeId) return n;
+                if (n.children) for (const c of n.children) { const r = findNode(c); if (r) return r; }
+                return null;
+            };
+            node = findNode(root.nodes[0]);
+        }
+
+        if (node) {
+            // Replace the word in the appropriate field
+            const replaceInField = (obj, fieldName, richFieldName) => {
+                const escapedWord = err.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`\\b${escapedWord}\\b`, 'g');
+                // Update plain text
+                if (obj.text && obj.text[fieldName]) {
+                    obj.text[fieldName] = obj.text[fieldName].replace(regex, suggestion);
+                }
+                // Update custom text
+                const customKey = 'custom' + fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+                if (obj[customKey]) {
+                    obj[customKey] = obj[customKey].replace(regex, suggestion);
+                }
+                // Update rich text HTML
+                if (obj[richFieldName]) {
+                    obj[richFieldName] = obj[richFieldName].replace(regex, suggestion);
+                }
+            };
+
+            if (err.field === 'title') replaceInField(node, 'title', 'richTitle');
+            else if (err.field === 'subtitle') replaceInField(node, 'subtitle', 'richSubtitle');
+            else if (err.field === 'description') replaceInField(node, 'subtitle', 'richDescription');
+
+            // Special case for course title in pagina de inicio
+            if (err.nodeId === 'course_title') {
+                const escapedWord = err.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`\\b${escapedWord}\\b`, 'g');
+                if (root.customTitle) root.customTitle = root.customTitle.replace(regex, suggestion);
+                if (root.richCourseTitle) root.richCourseTitle = root.richCourseTitle.replace(regex, suggestion);
+                if (root.title) root.title = root.title.replace(regex, suggestion);
+            }
+
+            renderDiagram(currentDiagramData, true);
+        }
+
+        // Remove this error item from UI
+        const item = body.querySelector(`.spell-error-item[data-idx="${idx}"]`);
+        if (item) {
+            item.style.transition = 'opacity 0.2s, max-height 0.3s';
+            item.style.opacity = '0';
+            item.style.maxHeight = item.offsetHeight + 'px';
+            setTimeout(() => {
+                item.style.maxHeight = '0';
+                item.style.overflow = 'hidden';
+                item.style.padding = '0';
+                item.style.margin = '0';
+                item.style.border = 'none';
+                
+                // Update stats
+                const remaining = body.querySelectorAll('.spell-error-item').length;
+                let visCount = 0;
+                body.querySelectorAll('.spell-error-item').forEach(i => {
+                    if (i.style.opacity !== '0') visCount++;
+                });
+                if (visCount === 0) {
+                    body.innerHTML = `
+                        <div class="spell-success">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            ¡Listo! Todas las correcciones aplicadas.
+                        </div>
+                    `;
+                    stats.textContent = '0 errores';
+                } else {
+                    stats.textContent = `${visCount} posible${visCount !== 1 ? 's' : ''} error${visCount !== 1 ? 'es' : ''}`;
+                }
+            }, 300);
+        }
+    };
+
+    // Bind suggestion clicks
+    body.querySelectorAll('.spell-suggestion-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const idx = parseInt(chip.getAttribute('data-idx'));
+            const suggestion = chip.getAttribute('data-suggestion');
+            applyCorrection(idx, suggestion);
+        });
+    });
+
+    // Bind manual apply clicks
+    body.querySelectorAll('.spell-manual-apply-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-idx'));
+            const input = body.querySelector(`.spell-manual-input[data-idx="${idx}"]`);
+            if (input && input.value.trim() !== '') {
+                applyCorrection(idx, input.value.trim());
+            }
+        });
+    });
+
+    // Bind enter key on manual input
+    body.querySelectorAll('.spell-manual-input').forEach(input => {
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const idx = parseInt(input.getAttribute('data-idx'));
+                if (input.value.trim() !== '') {
+                    applyCorrection(idx, input.value.trim());
+                }
+            }
+        });
+    });
+
+    // Bind ignore clicks
+    body.querySelectorAll('.spell-ignore-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-idx'));
+            const err = errors[idx];
+            if (err) SpellCheckEngine.ignore(err.word);
+
+            const item = body.querySelector(`.spell-error-item[data-idx="${idx}"]`);
+            if (item) {
+                item.style.transition = 'opacity 0.2s, max-height 0.3s';
+                item.style.opacity = '0';
+                item.style.maxHeight = item.offsetHeight + 'px';
+                setTimeout(() => {
+                    item.style.maxHeight = '0';
+                    item.style.overflow = 'hidden';
+                    item.style.padding = '0';
+                    item.style.margin = '0';
+                    item.style.border = 'none';
+                }, 200);
+                setTimeout(() => item.remove(), 500);
+            }
+
+            const remaining = body.querySelectorAll('.spell-error-item').length - 1;
+            if (remaining <= 0) {
+                body.innerHTML = `<div class="spell-success"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>¡Revisión completada!</div>`;
+                stats.textContent = '0 errores';
+            } else {
+                stats.textContent = `${remaining} restante${remaining !== 1 ? 's' : ''}`;
+            }
+        });
+    });
+});
+
+
+/* ========================================================================
+   FEATURE 3 — RESIZE MANAGER (Manual Bounding Box Resizing with Multi-Select & Magnet Snap)
+   ======================================================================== */
+const ResizeManager = {
+    isResizing: false,
+    activeNodes: [], // Array of node IDs being resized
+    startMouseX: 0,
+    startWidths: {}, // Map of nodeId -> start width
+    snapWidths: [],  // Array of widths to snap to
+    isPI: false,     // Flag to differentiate behavior
+
+    init(container) {
+        this._bind(container, false);
+    },
+
+    initPI(container, data) {
+        this._bind(container, true, data);
+    },
+
+    _bind(container, isPI, data) {
+        const svg = container.querySelector('svg');
+        if (!svg) return;
+
+        svg.querySelectorAll('.resize-handle-vis').forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+
+                this.isResizing = true;
+                this.isPI = isPI;
+                const clickedId = handle.getAttribute('data-resize-id');
+                
+                // Multi-select support: If the clicked node is selected, resize ALL selected nodes.
+                if (!isPI && DragManager.selectedNodes.has(clickedId)) {
+                    this.activeNodes = Array.from(DragManager.selectedNodes);
+                } else {
+                    this.activeNodes = [clickedId];
+                }
+
+                const pt = DragManager.screenToSVG(svg, e.clientX, e.clientY);
+                this.startMouseX = pt.x;
+
+                // Collect start widths for all active nodes
+                this.startWidths = {};
+                this.activeNodes.forEach(id => {
+                    const nodeG = svg.querySelector(`[data-node-id="${id}"]`);
+                    const rect = nodeG ? nodeG.querySelector('rect') : null;
+                    if (rect) {
+                        this.startWidths[id] = parseFloat(rect.getAttribute('width'));
+                        // Highlight the handle during resize
+                        const h = nodeG.querySelector('.resize-handle-vis');
+                        if (h) {
+                            h.setAttribute('opacity', '1');
+                            h.setAttribute('fill', '#FFD700');
+                        }
+                    } else {
+                        // Default fallback
+                        this.startWidths[id] = 200; 
+                    }
+                });
+
+                // Collect Magnet snap widths (from all other rects)
+                this.snapWidths = Array.from(svg.querySelectorAll('rect'))
+                    .filter(r => !r.classList.contains('resize-handle-vis') && !r.hasAttribute('width', '100%'))
+                    .map(r => parseFloat(r.getAttribute('width')))
+                    .filter(w => w > 10 && !isNaN(w));
+                // Remove duplicates
+                this.snapWidths = [...new Set(this.snapWidths)];
+
+                svg.style.cursor = 'ew-resize';
+            });
+        });
+
+        svg.addEventListener('mousemove', (e) => {
+            if (!this.isResizing) return;
+            e.preventDefault();
+
+            const pt = DragManager.screenToSVG(svg, e.clientX, e.clientY);
+            const dx = pt.x - this.startMouseX;
+            
+            // Determine the base new width using the clicked node as reference
+            const refStartW = this.startWidths[this.activeNodes[0]] || 200;
+            let targetW = refStartW + dx;
+            
+            // Magnet snap if close to existing line (±15px)
+            for (let sw of this.snapWidths) {
+                if (Math.abs(targetW - sw) < 15) {
+                    targetW = sw;
+                    break;
+                }
+            }
+            
+            // The applied dx is how much the reference actually changed after snap
+            const snappedDx = targetW - refStartW;
+
+            this.activeNodes.forEach(id => {
+                const sW = this.startWidths[id];
+                const newWidth = Math.max(60, sW + snappedDx);
+                
+                const g = svg.querySelector(`[data-node-id="${id}"]`);
+                if (g) {
+                    const rect = g.querySelector('rect');
+                    if (rect) {
+                        rect.setAttribute('width', newWidth);
+                        const handle = g.querySelector('.resize-handle-vis');
+                        if (handle) {
+                            const x = parseFloat(rect.getAttribute('x'));
+                            handle.setAttribute('x', x + newWidth - 4);
+                        }
+                    }
+                }
+            });
+        });
+
+        const endResize = (e) => {
+            if (!this.isResizing) return;
+            this.isResizing = false;
+            svg.style.cursor = '';
+
+            const pt = DragManager.screenToSVG(svg, e.clientX, e.clientY);
+            const dx = pt.x - this.startMouseX;
+            
+            // Recalculate snap for commit
+            const refStartW = this.startWidths[this.activeNodes[0]] || 200;
+            let targetW = Math.round(refStartW + dx);
+            for (let sw of this.snapWidths) {
+                if (Math.abs(targetW - sw) < 15) {
+                    targetW = sw;
+                    break;
+                }
+            }
+            const snappedDx = targetW - refStartW;
+
+            UndoManager.saveState();
+            const root = currentDiagramData.diagram.nodes ? currentDiagramData.diagram.nodes[0] : currentDiagramData.diagram;
+            
+            this.activeNodes.forEach(id => {
+                const sW = this.startWidths[id];
+                const finalW = Math.max(60, sW + snappedDx);
+
+                // Pagina de inicio stores widths directly differently due to subtitle boxes
+                if (this.isPI) {
+                    let isSub = false;
+                    let searchId = id;
+                    if (id.endsWith('_sub')) {
+                        isSub = true;
+                        searchId = id.replace(/_sub$/, '');
+                    }
+                    
+                    const rootNodes = currentDiagramData.diagram.nodes || [];
+                    for (const node of rootNodes) {
+                        if (node.id === searchId) {
+                            if (isSub) node.customSubWidth = finalW;
+                            else node.customWidth = finalW;
+                            break;
+                        }
+                    }
+                } else {
+                    const targetInfo = findParentAndNode(root, id);
+                    if (targetInfo && targetInfo.node) {
+                        targetInfo.node.customWidth = finalW;
+                    }
+                }
+            });
+
+            renderDiagram(currentDiagramData, false);
+            this.activeNodes = [];
+            this.startWidths = {};
+        };
+
+        svg.addEventListener('mouseup', endResize);
+        svg.addEventListener('mouseleave', (e) => {
+            if (this.isResizing) endResize(e);
+        });
+    }
+};
